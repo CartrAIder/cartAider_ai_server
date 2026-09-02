@@ -105,7 +105,283 @@ img = cv2.imdecode(np.frombuffer(raw_bytes, np.uint8), cv2.IMREAD_COLOR)
 반환값은 계약 §3의 `VisionObservation`이고 **verdict는 없습니다** — PASS/FLAG/REVIEW 판정은
 `cartgate/verification/reference_verify.py:verify(observation, receipt)`가 담당합니다.
 
-## 3. 리포 코드 지도 — 무엇이 서빙 코드이고 무엇이 아닌가
+## 3. 입출력 규격 (2026-09-02 실측)
+
+### 입력 — 지금은 "JSON"이 아니라 **디코딩된 이미지 배열**입니다
+
+이 리포는 HTTP 서비스를 포함하지 않으므로 **와이어 포맷(JSON/멀티파트/바이트)은 정해져 있지
+않습니다.** 백엔드가 무엇으로 받든, `resolve_camera()`에 넘길 때는 아래 형태여야 합니다.
+
+| 인자 | 타입 | 실측/제약 |
+|---|---|---|
+| `frames` | `.image` 속성을 가진 객체의 리스트 | `image`는 **`numpy.ndarray (H, W, 3) uint8, BGR, 0~255`** |
+| `receipt_skus` | `list[str]` | 그 카트 영수증 SKU만. 예 `["S0010","S0026","S0040"]` |
+| `camera_id` | `str` | `"cam_left"` / `"cam_right"` — 관측 JSON에 그대로 실림 |
+| `dev` | `int` 또는 `str` | GPU 인덱스(`0`) 또는 `"cpu"` |
+| `model`,`embedder`,`gallery` | 기동 시 로드한 객체 | 요청마다 재로드 금지 |
+
+바이트 → 배열 변환은 한 줄입니다. 프레임은 **촬영 순서대로** 넣어야 추적이 맞습니다.
+
+```python
+img = cv2.imdecode(np.frombuffer(jpeg_bytes, np.uint8), cv2.IMREAD_COLOR)  # BGR ndarray
+frames = [SimpleNamespace(image=img) for img in images]
+```
+
+**크기 실측** (합성 640×640 JPEG 기준): 프레임 1장 **73 KB**, base64로 감싸면 **97 KB**.
+카트 1대(2캠 × 4프레임) = 8장 **약 600 KB**, base64면 **약 800 KB**.
+와이어 포맷은 백엔드 판단이지만, 참고로 base64는 용량이 33% 늘고 JSON 파싱 비용이 붙습니다.
+
+**해상도**: 검출기는 내부에서 640×640으로 letterbox 하므로 원본 크기는 자유입니다. 다만
+학습·측정이 640×640에서 이뤄졌으니 그 근처를 권장합니다.
+
+### 중간 산출물 — `resolve_camera()` 반환 (참고용, 그대로 응답하지 않음)
+
+`(list[Detection], dict[str, ndarray])` 튜플입니다.
+
+```
+Detection.camera_id   str    'cam_left'
+Detection.track_id    str    'L1'
+Detection.candidates  dict   {'S0010': 0.3175, 'S0026': 0.5249, 'S0040': 0.2582}   # 영수증 SKU별 유사도
+Detection.n_frames    int    4
+Detection.box         tuple  (161, 20, 227, 90)      # xyxy, 픽셀
+Detection.det_conf    float  0.891
+Detection.crop_ref    str|None
+두 번째 값 crops: {track_id: BGR ndarray}   # 증거 이미지, 저장은 선택
+```
+
+### 출력 — `build_observation()` 반환: **순수 dict → 그대로 JSON**
+
+numpy 타입이 남지 않아 `json.dumps(obs)`가 바로 됩니다(검증 완료). 카트 1대 응답 **약 1.8 KB**.
+
+| 최상위 필드 | 타입 | 값 |
+|---|---|---|
+| `schema_version` | str | `"1.1"` 고정 |
+| `transaction_id` | str | 요청에서 받은 값 그대로 |
+| `gate_id` | str | 요청에서 받은 값 그대로 |
+| `captured_at` | str | ISO8601 (호출자가 넣어줌) |
+| `duration_ms` | int | 호출자가 측정해 넣음 |
+| `vision_status` | str | `"OK"` / 실패 시 호출자가 `"FAILED"` |
+| `cameras` | list | `[{camera_id: str, status: str, frames_used: int}]` |
+| `fusion_strategy` | str | `"plane_match"`(캘리브 O) / `"asymmetric"`(X) |
+| `cross_camera_resolved` | bool | 카메라 간 중복 제거 여부 — **판정 모드를 결정** |
+| `min_frames` | int | `2` |
+| `instances` | list | 아래 |
+
+| `instances[]` 필드 | 타입 | 예 |
+|---|---|---|
+| `instance_id` | str | `"I1"` |
+| `track_ids` | list[str] | `["L1","R1"]` (2캠 병합 시 2개) |
+| `camera_ids` | list[str] | `["cam_left","cam_right"]` |
+| `plane_xy` | list[float] \| null | `[29.85, 12.09]` cm — 미캘리브면 `null` |
+| `candidates` | dict[str,float] | `{"S0010":0.3175,"S0026":0.5249,"S0040":0.2582}` 0~1 |
+| `n_frames` | int | `4` |
+| `stable` | bool | `n_frames >= min_frames` |
+| `label_conflict` | bool | 두 카메라가 top SKU를 다르게 봄 |
+| `boxes` | dict[str,list[float]] | `{"cam_left":[161,20,227,90]}` xyxy |
+| `crop_refs` | dict[str,str] | 증거 이미지 경로. 저장 안 했으면 `{}` |
+
+**응답에 없는 것**: verdict, band, best_sku. 판정은 `reference_verify.verify(obs, receipt)` 몫입니다.
+
+<details><summary>실제 응답 전문 (2캠 × 4프레임, 인스턴스 4개)</summary>
+
+```json
+{
+  "schema_version": "1.1",
+  "transaction_id": "TX-IO-SPEC",
+  "gate_id": "GATE-03",
+  "captured_at": "2026-09-02T11:00:00+09:00",
+  "duration_ms": 142,
+  "vision_status": "OK",
+  "cameras": [
+    {
+      "camera_id": "cam_left",
+      "status": "OK",
+      "frames_used": 4
+    },
+    {
+      "camera_id": "cam_right",
+      "status": "OK",
+      "frames_used": 4
+    }
+  ],
+  "fusion_strategy": "plane_match",
+  "cross_camera_resolved": true,
+  "min_frames": 2,
+  "instances": [
+    {
+      "instance_id": "I1",
+      "track_ids": [
+        "L1",
+        "R1"
+      ],
+      "camera_ids": [
+        "cam_left",
+        "cam_right"
+      ],
+      "plane_xy": [
+        29.85,
+        12.09
+      ],
+      "candidates": {
+        "S0010": 0.3175,
+        "S0026": 0.5249,
+        "S0040": 0.2582
+      },
+      "n_frames": 4,
+      "stable": true,
+      "label_conflict": false,
+      "boxes": {
+        "cam_left": [
+          161.0,
+          20.0,
+          227.0,
+          90.0
+        ],
+        "cam_right": [
+          260.0,
+          21.0,
+          335.0,
+          88.0
+        ]
+      },
+      "crop_refs": {}
+    },
+    {
+      "instance_id": "I2",
+      "track_ids": [
+        "L2",
+        "R2"
+      ],
+      "camera_ids": [
+        "cam_left",
+        "cam_right"
+      ],
+      "plane_xy": [
+        60.64,
+        43.79
+      ],
+      "candidates": {
+        "S0010": 0.3169,
+        "S0026": 0.3386,
+        "S0040": 0.2246
+      },
+      "n_frames": 4,
+      "stable": true,
+      "label_conflict": true,
+      "boxes": {
+        "cam_left": [
+          336.0,
+          294.0,
+          449.0,
+          405.0
+        ],
+        "cam_right": [
+          388.0,
+          293.0,
+          493.0,
+          406.0
+        ]
+      },
+      "crop_refs": {}
+    },
+    {
+      "instance_id": "I3",
+      "track_ids": [
+        "L3",
+        "R3"
+      ],
+      "camera_ids": [
+        "cam_left",
+        "cam_right"
+      ],
+      "plane_xy": [
+        26.98,
+        33.01
+      ],
+      "candidates": {
+        "S0010": 0.2079,
+        "S0026": 0.4353,
+        "S0040": 0.3598
+      },
+      "n_frames": 4,
+      "stable": true,
+      "label_conflict": false,
+      "boxes": {
+        "cam_left": [
+          146.0,
+          197.0,
+          217.0,
+          281.0
+        ],
+        "cam_right": [
+          213.0,
+          197.0,
+          295.0,
+          281.0
+        ]
+      },
+      "crop_refs": {}
+    },
+    {
+      "instance_id": "I4",
+      "track_ids": [
+        "L4",
+        "R4"
+      ],
+      "camera_ids": [
+        "cam_left",
+        "cam_right"
+      ],
+      "plane_xy": [
+        46.66,
+        53.54
+      ],
+      "candidates": {
+        "S0010": 0.092,
+        "S0026": 0.3227,
+        "S0040": 0.2815
+      },
+      "n_frames": 4,
+      "stable": true,
+      "label_conflict": true,
+      "boxes": {
+        "cam_left": [
+          232.0,
+          204.0,
+          400.0,
+          537.0
+        ],
+        "cam_right": [
+          258.0,
+          202.0,
+          434.0,
+          540.0
+        ]
+      },
+      "crop_refs": {}
+    }
+  ]
+}
+```
+</details>
+
+### 모델 텐서 규격 (직접 ONNX를 부를 경우)
+
+```
+dino_arc.onnx        (88.0 MB, sha256 dfcd17f7…, opset 17)
+  IN  'input'   float32 ['b',3,224,224]   RGB, letterbox(회색 128 패딩), /255 후 ImageNet mean/std
+  OUT 'emb'     float32 ['b',256]         L2 정규화됨 → 내적이 곧 코사인 유사도
+
+product_det_640.onnx (10.6 MB, sha256 813e127a…, opset 12)
+  IN  'images'  float32 [1,3,640,640]     RGB, letterbox, /255
+  OUT 'output0' float32 [1,5,8400]        (cx,cy,w,h,score) — 클래스 1개 'product'
+                                          NMS 미포함 (그래프에 NonMaxSuppression 노드 없음)
+```
+
+전처리를 직접 구현하기보다 `cartgate.embed.get_embedder()` / ultralytics `YOLO`를 쓰는 편이
+안전합니다. letterbox·정규화·NMS가 이미 맞춰져 있습니다.
+
+## 4. 리포 코드 지도 — 무엇이 서빙 코드이고 무엇이 아닌가
 
 ### 서버에 필요한 코드 (런타임 경로)
 
@@ -141,7 +417,7 @@ img = cv2.imdecode(np.frombuffer(raw_bytes, np.uint8), cv2.IMREAD_COLOR)
 
 ---
 
-## 4. 실행 환경
+## 5. 실행 환경
 
 ```bash
 conda create -n cartgate python=3.11 -y && conda activate cartgate
@@ -159,7 +435,7 @@ pip install -r requirements.txt && pip install -e .
   ```
 - 자세한 내용은 [`RUNTIME_ENV.md`](RUNTIME_ENV.md).
 
-## 5. 성능 (L40S 실측)
+## 6. 성능 (L40S 실측)
 
 | 구간 | 시간 |
 |---|---|
@@ -170,7 +446,7 @@ pip install -r requirements.txt && pip install -e .
 
 메모리는 검출기 + 임베더 합쳐 GPU 1~2 GB 수준입니다.
 
-## 6. 경계 — 어디까지가 이 리포인가
+## 7. 경계 — 어디까지가 이 리포인가
 
 ```
 [게이트 카메라] ─프레임─▶ [AI 비전 서비스]  ─VisionObservation JSON─▶ [백엔드]
@@ -195,7 +471,7 @@ pip install -r requirements.txt && pip install -e .
 | 같은 입력이라도 재추론 시 유사도가 소수점 4째 자리에서 흔들릴 수 있음 | GPU 부동소수 |
 | 관측 JSON을 저장해 두면 재추론 없이 판정만 다시 돌릴 수 있음 | 판정은 순수 함수 |
 
-## 7. 번들에 없는 것 / 주의
+## 8. 번들에 없는 것 / 주의
 
 1. **실제 게이트 캘리브레이션이 없습니다.** `sample_gate_calib.json`은 합성 기하 값입니다.
    실제 설치 후 `cartgate/calibrate_plane.py`로 한 번 만들어야
