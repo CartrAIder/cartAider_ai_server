@@ -1,0 +1,28 @@
+# Datasets & augmented data — delivered separately (cloud zip), too large for git
+cjs_dataset/
+dataset/
+dataset_paired/
+detect_data/
+cart_dataset*/
+out/
+service_products/
+service_products.zip
+
+# Trained models / weights
+*.onnx
+*.onnx.data
+*.pt
+
+# Training + deploy outputs
+runs/
+deploy/
+
+# Python
+__pycache__/
+*.pyc
+*.egg-info/
+.pytest_cache/
+.ipynb_checkpoints/
+
+# Logs / scratch
+*.log
