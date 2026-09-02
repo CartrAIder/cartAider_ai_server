@@ -41,53 +41,69 @@ ONNX 검출기를 쓰면 **NMS를 직접 구현해야 합니다.** 그게 부담
 
 ---
 
-## 2. 호출 방법 — 파이썬 함수 3개
+## 2. FastAPI(또는 무엇이든)에 붙이는 지점
 
-서비스로 감싸는 일(HTTP/gRPC, 큐, 세션, 인증)은 백엔드 몫이고, AI 쪽이 제공하는 건
-아래 세 호출입니다. 프레임(BGR ndarray)과 그 카트의 영수증 SKU 목록을 주면
-`VisionObservation` dict가 나옵니다.
+AI 쪽이 제공하는 건 **함수 4개**입니다. 서비스 형태·라우팅·인증·큐는 백엔드 설계 영역이라
+아래는 "어디에 무엇을 끼우는가"만 보여주는 최소 예시입니다.
 
-카메라 프레임(BGR ndarray)과 영수증 SKU 목록만 있으면 `VisionObservation`까지 나옵니다.
+| 언제 | 호출 | 파일 |
+|---|---|---|
+| 프로세스 기동 시 1회 | `YOLO(...)`, `get_embedder(...)`, `load_gallery(...)`, `load_fusion(...)` | `cartgate/embed.py`, `gallery.py`, `vision.py` |
+| 요청마다 · 카메라별 | `resolve_camera(...)` → `Detection` 리스트 | `cartgate/vision.py` |
+| 요청마다 · 마지막 1회 | `build_observation(...)` → 응답 JSON | `cartgate/vision_fusion.py` |
 
 ```python
-import sys
 from ultralytics import YOLO
 from cartgate import vision_fusion
 from cartgate.embed import get_embedder
 from cartgate.gallery import load_gallery
+from cartgate.vision import load_fusion, resolve_camera
 
-sys.path.insert(0, "scripts")                # scripts/ 는 패키지가 아니라 경로 추가 필요
-import pipeline                              # resolve_camera / load_fusion
+# ── 기동 시 1회 (전역 보관) ─────────────────────────────────────────
+DETECTOR = YOLO("runs/detector/best.pt")            # 번들의 검출기
+EMBEDDER = get_embedder("dino_arc.onnx", pad=True)  # 번들의 인식 모델. pad=True 필수(ViT)
+GALLERY  = load_gallery("out/gallery.pkl")          # 번들의 갤러리 51 SKU
+FUSION   = load_fusion("gate_calib.json")           # 없으면 자동으로 AsymmetricFusion
+assert "CUDAExecutionProvider" in EMBEDDER.providers   # CPU 폴백이면 6배 느림
 
-detector = YOLO("runs/detector/best.pt")     # 프로세스당 1회
-embedder = get_embedder("dino_arc.onnx", pad=True)
-gallery  = load_gallery("out/gallery.pkl")
-fusion   = pipeline.load_fusion("gate_calib.json")   # 없으면 AsymmetricFusion
-
-per_cam = {}
-for cam_id, frames in captured.items():      # frames: [SimpleNamespace(image=bgr), ...]
-    dets, crops = pipeline.resolve_camera(detector, frames, embedder, gallery,
-                                          receipt_skus, dev=0, camera_id=cam_id)
-    per_cam[cam_id] = dets
-
-observation = vision_fusion.build_observation(
-    per_cam, fusion, transaction_id=tx_id, gate_id="GATE-03",
-    captured_at=iso_now, duration_ms=elapsed_ms,
-    frames_used={c: len(f) for c, f in captured.items()})
-# observation 은 순수 dict → json.dumps 해서 판정 레이어로 넘김
+# ── 요청 처리 ──────────────────────────────────────────────────────
+def observe(transaction_id, receipt_skus, cameras):
+    """cameras = {"cam_left": [BGR ndarray, ...], "cam_right": [...]}  (촬영 순서대로)"""
+    from types import SimpleNamespace
+    per_cam = {}
+    for cam_id, images in cameras.items():
+        frames = [SimpleNamespace(image=img) for img in images]   # .image 만 있으면 됨
+        dets, crops = resolve_camera(DETECTOR, frames, EMBEDDER, GALLERY,
+                                     receipt_skus, dev=0, camera_id=cam_id)
+        per_cam[cam_id] = dets
+    return vision_fusion.build_observation(          # 순수 dict → 그대로 JSON 직렬화 가능
+        per_cam, FUSION,
+        transaction_id=transaction_id, gate_id="GATE-03",
+        captured_at="2026-09-02T10:00:00+09:00",     # ISO8601
+        duration_ms=123,                             # 측정값을 넣어 주세요
+        frames_used={c: len(v) for c, v in cameras.items()})
 ```
 
-> 위 스니펫은 실제로 돌려서 확인했습니다(갤러리 51 SKU 로드 → 4프레임 → 인스턴스 8개 →
-> `json.dumps` 성공). 모델 로드는 프로세스당 1회면 되고, 기동 직후 더미 프레임으로 한 번
-> 추론해 두면 CUDA 워밍업(1.2~1.5초)을 첫 요청이 떠안지 않습니다.
->
-> 서빙의 핵심 함수 `resolve_camera()`가 `scripts/pipeline.py`에 있어 import가 어색합니다.
-> 서비스로 감쌀 때 `cartgate/` 안으로 옮기는 편이 깔끔합니다 — 필요하시면 옮겨 드리겠습니다.
+FastAPI라면 위 `observe()`를 라우트 하나에서 부르면 끝입니다. 이미지를 multipart로 받든
+base64로 받든 Redis에서 꺼내든, `cv2.imdecode`로 **BGR ndarray**만 만들어 넘기면 됩니다.
 
-판정(`PASS`/`FLAG`/`REVIEW`)은 **비전이 하지 않습니다**. 위 JSON을 판정 레이어에 넘기면
-됩니다 (참조 구현: `cartgate/verification/reference_verify.py`).
+```python
+# 예: 이미지 바이트 → 입력 형태
+import cv2, numpy as np
+img = cv2.imdecode(np.frombuffer(raw_bytes, np.uint8), cv2.IMREAD_COLOR)
+```
 
----
+**인자 규칙 3가지**
+
+1. `receipt_skus`에는 **그 카트 영수증의 SKU만** 넣습니다(전체 카탈로그 아님). 후보를 좁히는 게
+   설계의 핵심입니다. 유효한 SKU 목록은 `sorted(GALLERY.keys())`로 확인할 수 있습니다.
+2. **카메라당 프레임 2장 이상.** 1장이면 모든 인스턴스가 `stable:false`가 되어 판정이
+   아무것도 세지 못합니다(`min_frames=2`). 4장 전후가 적당합니다.
+3. `dev`는 GPU 인덱스(`0`) 또는 `"cpu"`. 첫 추론은 CUDA 워밍업으로 1.2~1.5초 걸리니
+   기동 직후 더미 프레임으로 한 번 돌려 두면 첫 요청이 느려지지 않습니다.
+
+반환값은 계약 §3의 `VisionObservation`이고 **verdict는 없습니다** — PASS/FLAG/REVIEW 판정은
+`cartgate/verification/reference_verify.py:verify(observation, receipt)`가 담당합니다.
 
 ## 3. 리포 코드 지도 — 무엇이 서빙 코드이고 무엇이 아닌가
 
@@ -101,13 +117,14 @@ observation = vision_fusion.build_observation(
 | `cartgate/vision_fusion.py` | 2캠 인스턴스 융합 + `build_observation()` — **비전 산출물의 정의** |
 | `cartgate/calibrate_plane.py` | 게이트 1회 캘리브레이션(호모그래피) + 검증 |
 | `cartgate/config.py` | 임계값. 비전 소유(`DET_CONF`,`TRACK_IOU`,`MIN_FRAMES`)와 판정 소유 구분 |
-| `scripts/pipeline.py` | 검출 → ByteTrack → 임베딩 → 융합. `resolve_camera()`가 서빙의 심장 |
+| `cartgate/vision.py` | **런타임 핵심** — `resolve_camera()`(검출→ByteTrack→임베딩), `load_fusion()`, `save_evidence()` |
 | `cartgate/verification/reference_verify.py` | 판정 참조 구현 (팀원 소유, 서버에선 이걸 대체) |
 
 ### 오프라인 전용 — 서버에 올릴 필요 없음
 
 | 파일 | 언제 쓰나 |
 |---|---|
+| `scripts/pipeline.py` | 합성 카트 데모 하네스 (런타임 코드는 `cartgate/vision.py`로 분리됨) |
 | `scripts/train_recognition.py` | 인식 임베더 학습 → `dino_arc.onnx` 생성 |
 | `scripts/train_detector.py` | 검출기 학습 → `best.pt` 생성 |
 | `cartgate/train_embed.py` | MobileNetV3 베이스라인 + augmentation 유틸 |

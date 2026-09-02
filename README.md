@@ -34,6 +34,7 @@ cjs/
 │   ├─ embed.py           #   임베딩 백엔드 (classical + ONNX, 배치 추론)
 │   ├─ gallery.py         #   SKU별 임베딩 갤러리 (지문 기반 캐시)
 │   ├─ match.py           #   크롭↔갤러리 코사인 유사도 (비전 몫만 남김)
+│   ├─ vision.py          #   런타임: 검출→추적→임베딩 (서비스가 부르는 지점)
 │   ├─ vision_fusion.py   #   2캠 인스턴스 융합 + VisionObservation  ← 비전 소유
 │   ├─ calibrate_plane.py #   카트 평면 캘리브레이션 (호모그래피)   ← 비전 소유
 │   ├─ config.py          #   임계값 (비전/판정 소유 구분)
@@ -48,7 +49,7 @@ cjs/
 │   ├─ make_cart_dataset.py     # 합성 카트 데이터셋 + gate_calib.json
 │   ├─ train_detector.py        # 검출기 학습 (YOLO, cart_dataset/data.yaml)
 │   ├─ train_recognition.py     # 인식 임베더 학습 → dino_arc.onnx
-│   ├─ pipeline.py              # 엔드투엔드 (검출→추적→인식→융합→관측 JSON)
+│   ├─ pipeline.py              # 합성 카트 데모 (cartgate/vision.py 를 호출)
 │   ├─ eval_carts.py            # 500카트 전수 평가 (false-stop / miss)
 │   ├─ viz_recognition.py       # 인식 결과 시각화
 │   ├─ stress_test.py           # 강건성 스윕 (혼잡도 × 화질)

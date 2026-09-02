@@ -30,15 +30,10 @@ import numpy as np
 from ultralytics import YOLO
 
 from cartgate import vision_fusion
+from cartgate.vision import load_fusion, resolve_camera, _aggregate
 from cartgate.embed import get_embedder
 from cartgate.gallery import build_gallery
 from cartgate.verification import reference_verify
-
-import importlib.util
-_spec = importlib.util.spec_from_file_location(
-    "cg_pipeline", str(Path(__file__).with_name("pipeline.py")))
-pipeline = importlib.util.module_from_spec(_spec)
-_spec.loader.exec_module(pipeline)
 
 AGGS = ["max", "mean", "top2"]
 GRID = [(s, w) for s in (0.45, 0.50, 0.55, 0.60, 0.65)
@@ -63,9 +58,9 @@ def observe_cart(cart: dict, root: Path, model, embedder, gallery, dev) -> dict:
         if not frames:
             continue
         raw = {}
-        dets, _ = pipeline.resolve_camera(model, frames, embedder, gallery,
-                                          list(receipt.keys()), dev,
-                                          camera_id=cam["camera_id"], raw_out=raw)
+        dets, _ = resolve_camera(model, frames, embedder, gallery,
+                                 list(receipt.keys()), dev,
+                                 camera_id=cam["camera_id"], raw_out=raw)
         per_cam_raw[cam["camera_id"]] = raw
         meta[cam["camera_id"]] = {d.track_id: {"n_frames": d.n_frames, "box": list(d.box),
                                                "det_conf": d.det_conf} for d in dets}
@@ -83,7 +78,7 @@ def detections_for(rec: dict, agg: str) -> dict:
             m = rec["meta"][cam][tid]
             dets.append(vision_fusion.Detection(
                 camera_id=cam, track_id=tid,
-                candidates={s: round(pipeline._aggregate(v, agg), 4) for s, v in sims.items()},
+                candidates={s: round(_aggregate(v, agg), 4) for s, v in sims.items()},
                 n_frames=m["n_frames"], box=tuple(m["box"]), det_conf=m["det_conf"]))
         per_cam[cam] = dets
     return per_cam
@@ -134,7 +129,7 @@ def main():
     ap.add_argument("--weights", default="runs/detector/best.pt")
     ap.add_argument("--onnx", default="dino_arc.onnx")
     ap.add_argument("--device", default="0")
-    ap.add_argument("--calib", default=pipeline.CALIB_PATH)
+    ap.add_argument("--calib", default="gate_calib.json")
     ap.add_argument("--out", default="out/eval_carts.json")
     args = ap.parse_args()
 
@@ -154,7 +149,7 @@ def main():
     # Both fusion strategies are scored from the SAME vision pass: fusion runs
     # after detection/recognition, so only the post-processing differs.
     fusions = [vision_fusion.AsymmetricFusion()]
-    calibrated = pipeline.load_fusion(args.calib)
+    calibrated = load_fusion(args.calib)
     if calibrated.name != "asymmetric":
         fusions.append(calibrated)
     print(f"fusions: {[f.name for f in fusions]}")
