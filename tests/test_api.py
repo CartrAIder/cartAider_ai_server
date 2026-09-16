@@ -83,3 +83,19 @@ def test_upload_rejects_a_missing_fixed_camera_stream():
 
     assert response.status_code == 422
     assert "cam_right" in response.json()["detail"]
+
+
+def test_upload_rejects_an_unknown_camera_stream():
+    """Catches FastAPI silently dropping a third camera file from a fixed two-camera inspection."""
+    app = create_app(service=RecordingService(), readiness=lambda: (True, ["CUDAExecutionProvider"]))
+
+    response = request(
+        app,
+        "POST",
+        "/v1/gate/inspections",
+        data={"gate_token": "token-1", "gate_id": "GATE-01"},
+        files=inspection_files() + [("cam_extra", ("extra.jpg", jpeg_bytes(), "image/jpeg"))],
+    )
+
+    assert response.status_code == 422
+    assert "unknown" in response.json()["detail"]

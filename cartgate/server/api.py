@@ -8,7 +8,7 @@ from typing import Annotated, Any
 import anyio
 import cv2
 import numpy as np
-from fastapi import FastAPI, File, Form, HTTPException, UploadFile
+from fastapi import FastAPI, File, Form, HTTPException, Request, UploadFile
 from fastapi.responses import JSONResponse
 
 from cartgate.server.catalog import ProductCatalog
@@ -42,6 +42,7 @@ def create_app(
 
     @app.post("/v1/gate/inspections")
     async def inspect(
+        raw_request: Request,
         gate_token: Annotated[str, Form()],
         gate_id: Annotated[str, Form()],
         cam_left: Annotated[list[UploadFile] | None, File()] = None,
@@ -53,6 +54,10 @@ def create_app(
             raise HTTPException(status_code=422, detail="cam_left frames are required")
         if not cam_right:
             raise HTTPException(status_code=422, detail="cam_right frames are required")
+        form = await raw_request.form()
+        unknown_parts = set(form.keys()) - {"gate_token", "gate_id", "cam_left", "cam_right"}
+        if unknown_parts:
+            raise HTTPException(status_code=422, detail="unknown multipart field")
         frames = {
             "cam_left": [await _decode_upload(upload, "cam_left") for upload in cam_left],
             "cam_right": [await _decode_upload(upload, "cam_right") for upload in cam_right],
