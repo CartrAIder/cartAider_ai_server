@@ -29,6 +29,7 @@ SPRING_BASE_URL=http://spring:8080
 CARTGATE_MODEL_DIR=/models
 SPRING_REQUEST_TIMEOUT_SECONDS=5
 MIN_FRAMES_PER_CAMERA=2
+CARTGATE_MODEL_HOST_DIR=/absolute/path/to/models
 ```
 
 The gate device sends `POST /v1/gate/inspections` as `multipart/form-data`:
@@ -76,3 +77,11 @@ deployment.
 
 The container does not publish a host port. Nginx and Spring communicate over
 the shared Docker network.
+
+## Jenkins
+
+The included `Jenkinsfile` follows the existing QuickPass deployment pattern.
+Create a Jenkins Secret file credential named `cartgate-ai-production-env` with
+the environment above. The agent must be connected to `cartAider-network` and
+have Docker socket access. Its test stage builds the Docker `test` target, then
+the deploy stage recreates `cartgate-ai-server` with the `fastapi` alias.
