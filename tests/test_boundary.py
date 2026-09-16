@@ -112,6 +112,22 @@ def test_boundary_case(case, fusion_name):
     assert verdict["verdict"] == expect, f"{name} [{fusion_name}] -> {verdict['verdict']}"
 
 
+def test_conservative_counts_include_a_healthy_camera_with_no_detection():
+    """Catches treating a camera with no matching tracks as absent during the MIN excess calculation."""
+    receipt = {"S0047": 1}
+    per_cam = {
+        "cam_left": [
+            det("cam_left", "L1", {"S0047": 0.81}, 125),
+            det("cam_left", "L2", {"S0047": 0.80}, 325),
+        ],
+        "cam_right": [],
+    }
+
+    _, verdict = run(per_cam, receipt, V.AsymmetricFusion())
+
+    assert verdict["verdict"] == "PASS"
+
+
 def main():
     strategies = {
         "미캘리브(asymmetric)": V.AsymmetricFusion(),

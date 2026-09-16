@@ -123,7 +123,11 @@ def _verify_conservative(observation: dict, insts: list[dict],
         else:
             unexplained.append(inst)
 
-    cams = list(per_cam.keys()) or ["?"]
+    # A healthy camera may see no strong tracks. It still participates in the
+    # conservative minimum; otherwise a two-item false positive from one side
+    # looks like cross-camera confirmation.
+    cams = [c.get("camera_id") for c in observation.get("cameras", []) if c.get("camera_id")]
+    cams = cams or list(per_cam.keys()) or ["?"]
     skus = {s for c in per_cam.values() for s in c}
     counts = {s: max(per_cam[c].get(s, 0) for c in cams) for s in skus}
     excess = {s: min(per_cam[c].get(s, 0) for c in cams) for s in skus}
