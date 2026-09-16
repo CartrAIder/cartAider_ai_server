@@ -107,6 +107,13 @@ yolo11n.pt                          검출기 베이스 가중치
 
 ## 실행
 
+### AI HTTP 서버
+
+게이트 장치가 카메라 2대의 프레임을 업로드하는 서버는 `cartgate.server.api`에 있다.
+Spring의 검사 시작·완료·실패 API와 연동하며, Nginx는 Docker 네트워크의 `fastapi:8000`으로
+전달한다. 모델 번들 배치, 환경변수, Jetson GPU 확인 및 요청 형식은
+[`DEPLOYMENT.md`](DEPLOYMENT.md)를 따른다.
+
 ```bash
 # 엔드투엔드 데모 (검출 → 인식 → 융합 → 판정)
 python scripts/pipeline.py

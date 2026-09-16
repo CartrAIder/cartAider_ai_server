@@ -15,3 +15,7 @@ openpyxl
 huggingface_hub
 safetensors
 pytest                 # unit tests (cartgate.verification / fusion)
+fastapi
+uvicorn[standard]
+httpx
+python-multipart

@@ -40,3 +40,23 @@ def test_fail_sends_only_a_spring_failure_enum():
     client = SpringGateClient("http://spring:8080", "shared-secret", transport=httpx.MockTransport(spring))
 
     client.fail("token-1", "CAMERA_UNAVAILABLE")
+
+
+def test_complete_retries_a_transient_connection_failure():
+    """Catches leaving Spring IN_PROGRESS when its first completion connection is interrupted."""
+    attempts = 0
+
+    def spring(request: httpx.Request) -> httpx.Response:
+        nonlocal attempts
+        attempts += 1
+        if attempts == 1:
+            raise httpx.ConnectError("network interrupted", request=request)
+        return httpx.Response(204)
+
+    client = SpringGateClient(
+        "http://spring:8080", "shared-secret", transport=httpx.MockTransport(spring), max_attempts=2
+    )
+
+    client.complete("token-1", "PASS")
+
+    assert attempts == 2

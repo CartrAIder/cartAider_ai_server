@@ -23,6 +23,7 @@ __pycache__/
 *.egg-info/
 .pytest_cache/
 .ipynb_checkpoints/
+build/
 
 # Logs / scratch
 *.log

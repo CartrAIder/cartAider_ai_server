@@ -6,6 +6,7 @@ from dataclasses import dataclass
 from typing import Any, Callable, Protocol
 
 from cartgate.server.catalog import CatalogError, ProductCatalog, ReceiptItem
+from cartgate.server.spring import SpringGateError
 
 
 class GateSpringClient(Protocol):
@@ -70,14 +71,21 @@ class GateService:
                 raise VisionInferenceError(f"unsupported vision verdict: {verdict}")
             self._spring.complete(request.gate_token, verdict)
             return InspectionResult(verdict=verdict)
+        except SpringGateError:
+            # Spring may have persisted the completion before its response was
+            # lost. Never replace that terminal state with a conflicting fail.
+            raise
         except CameraUnavailableError:
             self._spring.fail(request.gate_token, "CAMERA_UNAVAILABLE")
             raise
         except InvalidImageDataError:
             self._spring.fail(request.gate_token, "INVALID_IMAGE_DATA")
             raise
-        except (VisionInferenceError, CatalogError):
+        except VisionInferenceError:
             self._spring.fail(request.gate_token, "AI_INFERENCE_ERROR")
+            raise
+        except CatalogError:
+            self._spring.fail(request.gate_token, "INTERNAL_ERROR")
             raise
         except Exception:
             self._spring.fail(request.gate_token, "INTERNAL_ERROR")

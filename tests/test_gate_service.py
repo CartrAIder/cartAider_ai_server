@@ -4,6 +4,7 @@ import pytest
 
 from cartgate.server.catalog import ProductCatalog
 from cartgate.server.service import CameraUnavailableError, GateService, InspectionRequest, VisionInferenceError
+from cartgate.server.spring import SpringGateError
 
 
 @dataclass
@@ -89,3 +90,18 @@ def test_rejects_any_camera_set_other_than_the_fixed_pair(tmp_path):
         GateService(spring, catalog(tmp_path), lambda **_: "PASS").inspect(invalid)
 
     assert spring.calls == []
+
+
+def test_completion_transport_failure_does_not_replace_result_with_fail(tmp_path):
+    """Catches changing a possibly persisted Spring completion into FAILED after response loss."""
+    class CompletionLostSpring(RecordingSpring):
+        def complete(self, gate_token, verdict):
+            self.calls.append(("complete", gate_token, verdict))
+            raise SpringGateError("response lost")
+
+    spring = CompletionLostSpring([{"barcode": "0000289908820", "qty": 1}])
+
+    with pytest.raises(SpringGateError):
+        GateService(spring, catalog(tmp_path), lambda **_: "PASS").inspect(request())
+
+    assert spring.calls == [("start", "token-1", "GATE-01"), ("complete", "token-1", "PASS")]

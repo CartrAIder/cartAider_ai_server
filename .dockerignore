@@ -1,0 +1,12 @@
+.git
+.worktrees
+__pycache__
+*.pyc
+.pytest_cache
+dataset
+cart_dataset
+out/crops
+runs
+deploy
+*.onnx
+*.pt
