@@ -26,3 +26,6 @@ __pycache__/
 
 # Logs / scratch
 *.log
+
+# Local Git worktrees
+.worktrees/
