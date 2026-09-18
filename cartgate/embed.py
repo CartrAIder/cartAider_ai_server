@@ -1,6 +1,8 @@
 """Appearance-embedding backends: ClassicalEmbedder (HSV+HOG, no downloads) and
 OnnxEmbedder (a CNN/ViT backbone via onnxruntime). Both expose
 embed(bgr, mask) -> 1-D L2-normalized float32 vector."""
+from __future__ import annotations
+
 import os
 
 import cv2

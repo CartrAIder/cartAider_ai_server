@@ -10,7 +10,7 @@ pipeline {
     }
 
     environment {
-        AI_HEALTH_URL = 'http://fastapi:8000/healthz'
+        L4T_VERSION = 'r35.4.1'
     }
 
     stages {
@@ -22,7 +22,7 @@ pipeline {
 
         stage('AI Test Image') {
             steps {
-                sh 'docker build --target test --tag cartgate-ai-test:$BUILD_NUMBER .'
+                sh 'docker build --build-arg L4T_VERSION=$L4T_VERSION --target test --tag cartgate-ai-test:$BUILD_NUMBER .'
             }
         }
 
@@ -45,29 +45,16 @@ pipeline {
                         done < "$AI_ENV_FILE"
 
                         : "${CARTGATE_MODEL_HOST_DIR:?CARTGATE_MODEL_HOST_DIR must point to the model bundle}"
+                        scripts/validate_model_bundle.sh "$CARTGATE_MODEL_HOST_DIR"
 
-                        docker build --tag "cartgate-ai:$BUILD_NUMBER" .
-                        docker rm --force cartgate-ai-server 2>/dev/null || true
-                        docker run --detach \
-                            --name cartgate-ai-server \
-                            --network cartAider-network \
-                            --network-alias fastapi \
-                            --env-file "$AI_ENV_FILE" \
-                            --mount "type=bind,src=$CARTGATE_MODEL_HOST_DIR,dst=/models,readonly" \
-                            --restart unless-stopped \
-                            "cartgate-ai:$BUILD_NUMBER"
+                        docker build \
+                            --build-arg L4T_VERSION="$L4T_VERSION" \
+                            --tag "cartgate-ai:$BUILD_NUMBER" .
+                        sh scripts/deploy_with_rollback.sh \
+                            "cartgate-ai:$BUILD_NUMBER" \
+                            "$AI_ENV_FILE" \
+                            "$CARTGATE_MODEL_HOST_DIR"
                     '''
-                }
-            }
-        }
-
-        stage('Health Check') {
-            steps {
-                retry(24) {
-                    sleep time: 5, unit: 'SECONDS'
-                    timeout(time: 5, unit: 'SECONDS') {
-                        sh 'curl --fail --silent --show-error "$AI_HEALTH_URL" > /dev/null'
-                    }
                 }
             }
         }

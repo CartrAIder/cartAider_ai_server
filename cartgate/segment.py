@@ -2,6 +2,8 @@
 CARTGATE_SEG env var: rembg (U^2-Net matting), grabcut (border-prior), or auto
 (rembg with a grabcut fallback). Returns (rgba_cutout_BGRA, mask{0,255}) at input
 size. The rembg model is set by CARTGATE_REMBG_MODEL (default "u2net")."""
+from __future__ import annotations
+
 import os
 
 import cv2

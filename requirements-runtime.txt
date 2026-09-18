@@ -1,0 +1,17 @@
+# AMD64 / Python 3.11 / CUDA 12 serving stack validated by the model workstream.
+# Jetson/ARM64 requires NVIDIA-provided wheels and must not use this file.
+-c constraints-runtime.txt
+
+torch==2.5.1
+torchvision==0.20.1
+onnxruntime-gpu==1.22.0
+ultralytics==8.4.104
+opencv-contrib-python-headless==5.0.0.93
+numpy==2.4.6
+scipy==1.17.1
+
+# HTTP service dependencies.
+fastapi==0.141.1
+uvicorn[standard]==0.53.0
+httpx==0.28.1
+python-multipart==0.0.32

@@ -1,0 +1,15 @@
+# Jetson AGX Xavier / JetPack 5.1.x (L4T 35.x): Python 3.8, CUDA 11.4,
+# cuDNN 8.6 and TensorRT 8.5. PyTorch, torchvision and onnxruntime-gpu are
+# NVIDIA aarch64 wheels installed by the Dockerfile before this file.
+numpy==1.24.4
+scipy==1.10.1
+opencv-contrib-python-headless==5.0.0.93
+ultralytics==8.4.104
+lap==0.5.13
+
+# Last service dependency line that supports JetPack's Python 3.8.
+fastapi==0.115.8
+uvicorn[standard]==0.30.6
+httpx==0.28.1
+python-multipart==0.0.20
+typing-extensions==4.12.2

@@ -1,6 +1,8 @@
 """Build the SKU embedding gallery from dataset/<sku>/<images>. Each image is
 expanded into rotation/flip variants so one studio shot still matches field crops
 seen at arbitrary rotation."""
+from __future__ import annotations
+
 import hashlib
 import json
 import pickle
@@ -42,18 +44,73 @@ def rotate_rgba(rgba: np.ndarray, deg: float) -> np.ndarray:
                           borderMode=cv2.BORDER_CONSTANT, borderValue=(0, 0, 0, 0))
 
 
+def save_gallery_npz(gallery: dict, path: str = "out/gallery.npz") -> str:
+    """Write a NumPy-version-portable gallery using arrays and JSON only."""
+    skus = sorted(gallery)
+    vectors = (
+        np.concatenate([np.asarray(gallery[sku]["vectors"], dtype=np.float32) for sku in skus])
+        if skus
+        else np.zeros((0, 0), dtype=np.float32)
+    )
+    np.savez_compressed(
+        path,
+        sku_ids=np.array(skus),
+        counts=np.array([len(gallery[sku]["vectors"]) for sku in skus], dtype=np.int32),
+        vectors=vectors,
+        views_json=np.array(json.dumps({sku: gallery[sku].get("views", []) for sku in skus})),
+    )
+    return path
+
+
+def _load_npz(path: Path) -> dict:
+    with np.load(str(path), allow_pickle=False) as archive:
+        skus = [str(sku) for sku in archive["sku_ids"]]
+        counts = archive["counts"].astype(int)
+        vectors = archive["vectors"]
+        views = json.loads(str(archive["views_json"]))
+
+    gallery, offset = {}, 0
+    for sku, count in zip(skus, counts):
+        gallery[sku] = {
+            "vectors": vectors[offset:offset + count],
+            "views": views.get(sku, []),
+        }
+        offset += int(count)
+    return gallery
+
+
+def _load_pkl(path: Path) -> dict:
+    try:
+        with path.open("rb") as stream:
+            return pickle.load(stream)
+    except ModuleNotFoundError as exc:
+        raise RuntimeError(
+            f"{path} was pickled by an incompatible NumPy version; "
+            "deploy the sibling .npz gallery instead"
+        ) from exc
+
+
 def load_gallery(path: str = "out/gallery.pkl") -> dict:
-    """Load a prebuilt gallery for serving.
+    """Load a prebuilt .npz or .pkl gallery for serving.
 
     build_gallery() needs the product photos; a deployed service does not. Ship
-    out/gallery.pkl (a few MB) instead of the photo set and load it here: the
+    out/gallery.npz (a few MB) instead of the photo set and load it here: the
     embeddings are all the recognizer ever touches. Rebuild only when the
     product photos or the embedding model change.
+
+    If the requested file is absent, the sibling with the other supported suffix
+    is used. This keeps older serving code compatible with NPZ-only bundles.
     """
-    with open(path, "rb") as f:
-        gallery = pickle.load(f)
+    gallery_path = Path(path)
+    if not gallery_path.exists():
+        alternate_suffix = ".npz" if gallery_path.suffix == ".pkl" else ".pkl"
+        alternate = gallery_path.with_suffix(alternate_suffix)
+        if alternate.exists():
+            gallery_path = alternate
+
+    gallery = _load_npz(gallery_path) if gallery_path.suffix == ".npz" else _load_pkl(gallery_path)
     if not gallery:
-        raise ValueError(f"{path} holds no SKUs")
+        raise ValueError(f"{gallery_path} holds no SKUs")
     return gallery
 
 
@@ -94,6 +151,9 @@ def build_gallery(dataset_dir: str, embedder, out_dir: str = "out",
             if json.loads(key_file.read_text()).get("key") == key:
                 with open(pkl_file, "rb") as f:
                     gallery = pickle.load(f)
+                npz_file = out / "gallery.npz"
+                if not npz_file.exists():
+                    save_gallery_npz(gallery, str(npz_file))
                 print(f"  gallery cache hit ({len(gallery)} SKUs, "
                       f"{sum(v['vectors'].shape[0] for v in gallery.values())} vectors)")
                 return gallery
@@ -158,6 +218,7 @@ def build_gallery(dataset_dir: str, embedder, out_dir: str = "out",
 
     with open(pkl_file, "wb") as f:
         pickle.dump(gallery, f)
+    save_gallery_npz(gallery, str(out / "gallery.npz"))
     with open(out / "gallery_meta.json", "w") as f:
         json.dump({k: {"n_vectors": int(v["vectors"].shape[0])} for k, v in gallery.items()}, f, indent=2)
     key_file.write_text(json.dumps({

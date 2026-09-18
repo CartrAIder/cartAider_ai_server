@@ -2,14 +2,14 @@
 
 from __future__ import annotations
 
-from collections.abc import Callable
-from typing import Annotated, Any
+from typing import Any, Callable, Dict, List, Optional, Tuple
 
 import anyio
 import cv2
 import numpy as np
 from fastapi import FastAPI, File, Form, HTTPException, Request, UploadFile
 from fastapi.responses import JSONResponse
+from typing_extensions import Annotated
 
 from cartgate.server.catalog import ProductCatalog
 from cartgate.server.runtime import CapturedFrame, VisionRuntime
@@ -28,8 +28,8 @@ MAX_IMAGE_BYTES = 5 * 1024 * 1024
 
 def create_app(
     *,
-    service: GateService | Any | None = None,
-    readiness: Callable[[], tuple[bool, list[str]]] | None = None,
+    service: Optional[Any] = None,
+    readiness: Optional[Callable[[], Tuple[bool, List[str]]]] = None,
 ) -> FastAPI:
     app = FastAPI(title="CartGate AI Server", version="0.1.0")
     ready = readiness or (lambda: (False, []))
@@ -45,9 +45,9 @@ def create_app(
         raw_request: Request,
         gate_token: Annotated[str, Form()],
         gate_id: Annotated[str, Form()],
-        cam_left: Annotated[list[UploadFile] | None, File()] = None,
-        cam_right: Annotated[list[UploadFile] | None, File()] = None,
-    ) -> dict[str, str]:
+        cam_left: Annotated[Optional[List[UploadFile]], File()] = None,
+        cam_right: Annotated[Optional[List[UploadFile]], File()] = None,
+    ) -> Dict[str, str]:
         if service is None:
             raise HTTPException(status_code=503, detail="AI service is not ready")
         if not cam_left:

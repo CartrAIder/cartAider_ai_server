@@ -2,6 +2,8 @@
 Objects are piled with overlap, perspective/rotation/lighting jitter, motion blur
 and quality degradation. GT boxes come from the composition (occlusion-aware: an
 object mostly covered by items on top of it is dropped), so no manual boxing."""
+from __future__ import annotations
+
 from dataclasses import dataclass, field
 
 import cv2

@@ -1,0 +1,8 @@
+# Offline training, data preparation, and handoff only.
+timm==1.0.28
+rembg==2.0.77
+pillow-heif==1.4.0
+scikit-image==0.26.0
+openpyxl==3.1.5
+huggingface_hub==1.26.0
+safetensors==0.8.0

@@ -1,21 +1,5 @@
-# Python 3.11. Install torch matching your CUDA first (see README), then:
-#   pip install -r requirements.txt
-torch>=2.5
-torchvision
-timm
-onnxruntime-gpu==1.22.0  # CUDA 12 build; 1.23+ needs CUDA 13 (see docs/RUNTIME_ENV.md)
-opencv-contrib-python
-ultralytics
-rembg
-pillow-heif
-scikit-image
-scipy>=1.14
-numpy
-openpyxl
-huggingface_hub
-safetensors
-pytest                 # unit tests (cartgate.verification / fusion)
-fastapi
-uvicorn[standard]
-httpx
-python-multipart
+# Full development environment. The production image installs only
+# requirements-runtime.txt; training/data-prep tools stay out of the server.
+-r requirements-runtime.txt
+-r requirements-training.txt
+-r requirements-test.txt

@@ -26,6 +26,8 @@ Typical wiring, models loaded once per process:
         per_cam[cam_id] = dets
     observation = vision_fusion.build_observation(per_cam, fusion, ...)
 """
+from __future__ import annotations
+
 import json
 from collections import defaultdict
 from pathlib import Path
@@ -216,5 +218,4 @@ def resolve_camera(model, frames, embedder, gallery, receipt_skus, dev,
             crop_ref=None,                           # filled by save_evidence() on demand
         ))
     return dets, crops
-
 

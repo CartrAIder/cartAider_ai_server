@@ -28,5 +28,38 @@ build/
 # Logs / scratch
 *.log
 
+# Documentation (kept locally only)
+*.md
+
+# Environment files and secrets
+.env
+.env.*
+secrets/
+*.pem
+*.key
+*.p12
+*.pfx
+*.jks
+*.keystore
+*credentials*.json
+*service-account*.json
+
+# Local databases / dumps
+*.db
+*.sqlite
+*.sqlite3
+*.sql
+*.dump
+
+# Local device calibration
+*gate_calib*.json
+
+# Local model bundles and metadata
+/models/
+.DS_Store
+*.ses
+.idea/
+.vscode/
+
 # Local Git worktrees
 .worktrees/
