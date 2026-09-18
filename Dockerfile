@@ -12,6 +12,10 @@ ENV PIP_DISABLE_PIP_VERSION_CHECK=1 \
 RUN apt-get update \
     && apt-get install --no-install-recommends -y \
         ca-certificates curl libgomp1 libopenblas-base libopenmpi-dev python3-pip \
+        software-properties-common \
+    && add-apt-repository --yes ppa:ubuntu-toolchain-r/test \
+    && apt-get update \
+    && apt-get install --no-install-recommends -y libstdc++6 \
     && rm -rf /var/lib/apt/lists/* \
     && python3 -m pip install --upgrade pip==24.3.1 'setuptools<76' wheel
 
@@ -38,6 +42,7 @@ RUN python3 -m pip install numpy==1.24.4 \
     && python3 -m pip uninstall -y opencv-python opencv-contrib-python \
     && python3 -m pip install --force-reinstall --no-deps opencv-contrib-python-headless==5.0.0.93 \
     && rm -f "/tmp/${TORCH_WHEEL}" "/tmp/${TORCHVISION_WHEEL}" "/tmp/${ORT_WHEEL}" \
+    && python3 -c "import onnxruntime as ort; providers=ort.get_available_providers(); print('onnxruntime providers', providers); assert 'CUDAExecutionProvider' in providers" \
     && python3 -c "import cv2; print('headless cv2', cv2.__version__)"
 
 COPY cartgate ./cartgate
