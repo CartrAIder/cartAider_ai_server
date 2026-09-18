@@ -12,10 +12,6 @@ ENV PIP_DISABLE_PIP_VERSION_CHECK=1 \
 RUN apt-get update \
     && apt-get install --no-install-recommends -y \
         ca-certificates curl libgomp1 libopenblas-base libopenmpi-dev python3-pip \
-        software-properties-common \
-    && add-apt-repository --yes ppa:ubuntu-toolchain-r/test \
-    && apt-get update \
-    && apt-get install --no-install-recommends -y libstdc++6 \
     && rm -rf /var/lib/apt/lists/* \
     && python3 -m pip install --upgrade pip==24.3.1 'setuptools<76' wheel
 
@@ -25,15 +21,15 @@ ARG TORCH_URL=https://developer.download.nvidia.com/compute/redist/jp/v512/pytor
 ARG TORCHVISION_WHEEL=torchvision-0.16.2+c6f3977-cp38-cp38-linux_aarch64.whl
 ARG TORCHVISION_SHA256=7c98106b7f0a5561edee07bed877d7d2a293c72edaef59eec7794d4809ef7de2
 ARG TORCHVISION_URL=https://github.com/ultralytics/assets/releases/download/v0.0.0/torchvision-0.16.2%2Bc6f3977-cp38-cp38-linux_aarch64.whl
-ARG ORT_WHEEL=onnxruntime_gpu-1.17.0-cp38-cp38-linux_aarch64.whl
-ARG ORT_SHA256=f2deb6cb314a8a6f793753fbd9ce5bd73e080ca89553dab5e580ac82a9f1ea07
-ARG ORT_URL=https://nvidia.box.com/shared/static/zostg6agm00fb6t5uisw51qi6kpcuwzd.whl
+ARG ORT_WHEEL=onnxruntime_gpu-1.16.3-cp38-cp38-linux_aarch64.whl
+ARG ORT_SHA256=ed58a16480d70d917494de4d99ad7d6f0855a5241751aa67f477f2061875022e
+ARG ORT_URL=https://github.com/ultralytics/assets/releases/download/v0.0.0/${ORT_WHEEL}
 
 COPY requirements-jetson.txt ./
 RUN python3 -m pip install numpy==1.24.4 \
-    && curl -fL --retry 3 -o "/tmp/${TORCH_WHEEL}" "${TORCH_URL}" \
-    && curl -fL --retry 3 -o "/tmp/${TORCHVISION_WHEEL}" "${TORCHVISION_URL}" \
-    && curl -fL --retry 3 -o "/tmp/${ORT_WHEEL}" "${ORT_URL}" \
+    && curl -fL --retry 5 --retry-delay 5 --retry-connrefused --connect-timeout 30 -o "/tmp/${TORCH_WHEEL}" "${TORCH_URL}" \
+    && curl -fL --retry 5 --retry-delay 5 --retry-connrefused --connect-timeout 30 -o "/tmp/${TORCHVISION_WHEEL}" "${TORCHVISION_URL}" \
+    && curl -fL --retry 5 --retry-delay 5 --retry-connrefused --connect-timeout 30 -o "/tmp/${ORT_WHEEL}" "${ORT_URL}" \
     && echo "${TORCH_SHA256}  /tmp/${TORCH_WHEEL}" | sha256sum -c - \
     && echo "${TORCHVISION_SHA256}  /tmp/${TORCHVISION_WHEEL}" | sha256sum -c - \
     && echo "${ORT_SHA256}  /tmp/${ORT_WHEEL}" | sha256sum -c - \
