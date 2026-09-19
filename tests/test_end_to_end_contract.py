@@ -1,5 +1,6 @@
 import asyncio
 import csv
+import hashlib
 import json
 
 import httpx
@@ -9,6 +10,10 @@ from cartgate.server.api import create_app
 from cartgate.server.catalog import ProductCatalog
 from cartgate.server.service import GateService
 from cartgate.server.spring import SpringGateClient
+
+
+GATE_API_KEY = "gate-01-secret"
+GATE_API_KEY_HASHES = {"GATE-01": hashlib.sha256(GATE_API_KEY.encode()).hexdigest()}
 
 
 def request(app, **kwargs):
@@ -48,9 +53,18 @@ def test_uploaded_inspection_claims_receipt_then_completes_same_token(tmp_path):
 
     client = SpringGateClient("http://spring:8080", "secret", transport=httpx.MockTransport(spring))
     service = GateService(client, ProductCatalog.from_csv(catalog_path), lambda **_: "PASS")
-    app = create_app(service=service, readiness=lambda: (True, ["CPUExecutionProvider"]))
+    app = create_app(
+        service=service,
+        readiness=lambda: (True, ["CPUExecutionProvider"]),
+        gate_api_key_hashes=GATE_API_KEY_HASHES,
+    )
 
-    response = request(app, data={"gate_token": "token-1", "gate_id": "GATE-01"}, files=files())
+    response = request(
+        app,
+        data={"gate_token": "token-1", "gate_id": "GATE-01"},
+        files=files(),
+        headers={"Authorization": f"Bearer {GATE_API_KEY}"},
+    )
 
     assert response.status_code == 200
     assert response.json() == {"verdict": "PASS"}

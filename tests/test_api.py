@@ -1,10 +1,16 @@
 import asyncio
+import hashlib
 
 import httpx
 import numpy as np
 
 from cartgate.server.api import create_app
 from cartgate.server.service import InspectionResult
+
+
+GATE_API_KEY = "gate-01-secret"
+GATE_API_KEY_HASHES = {"GATE-01": hashlib.sha256(GATE_API_KEY.encode()).hexdigest()}
+AUTH_HEADERS = {"Authorization": f"Bearer {GATE_API_KEY}"}
 
 
 class RecordingService:
@@ -53,7 +59,11 @@ def test_health_separates_liveness_from_model_readiness():
 def test_upload_decodes_both_camera_streams_and_returns_final_verdict():
     """Catches ignoring one camera's uploaded frames or returning an observation instead of a Spring verdict."""
     service = RecordingService()
-    app = create_app(service=service, readiness=lambda: (True, ["CUDAExecutionProvider"]))
+    app = create_app(
+        service=service,
+        readiness=lambda: (True, ["CUDAExecutionProvider"]),
+        gate_api_key_hashes=GATE_API_KEY_HASHES,
+    )
 
     response = request(
         app,
@@ -61,6 +71,7 @@ def test_upload_decodes_both_camera_streams_and_returns_final_verdict():
         "/v1/gate/inspections",
         data={"gate_token": "token-1", "gate_id": "GATE-01"},
         files=inspection_files(),
+        headers=AUTH_HEADERS,
     )
 
     assert response.status_code == 200
@@ -71,7 +82,11 @@ def test_upload_decodes_both_camera_streams_and_returns_final_verdict():
 
 def test_upload_rejects_a_missing_fixed_camera_stream():
     """Catches accepting a one-camera upload as a valid gate inspection."""
-    app = create_app(service=RecordingService(), readiness=lambda: (True, ["CUDAExecutionProvider"]))
+    app = create_app(
+        service=RecordingService(),
+        readiness=lambda: (True, ["CUDAExecutionProvider"]),
+        gate_api_key_hashes=GATE_API_KEY_HASHES,
+    )
 
     response = request(
         app,
@@ -79,6 +94,7 @@ def test_upload_rejects_a_missing_fixed_camera_stream():
         "/v1/gate/inspections",
         data={"gate_token": "token-1", "gate_id": "GATE-01"},
         files=[("cam_left", ("left-1.jpg", jpeg_bytes(), "image/jpeg"))],
+        headers=AUTH_HEADERS,
     )
 
     assert response.status_code == 422
@@ -87,7 +103,11 @@ def test_upload_rejects_a_missing_fixed_camera_stream():
 
 def test_upload_rejects_an_unknown_camera_stream():
     """Catches FastAPI silently dropping a third camera file from a fixed two-camera inspection."""
-    app = create_app(service=RecordingService(), readiness=lambda: (True, ["CUDAExecutionProvider"]))
+    app = create_app(
+        service=RecordingService(),
+        readiness=lambda: (True, ["CUDAExecutionProvider"]),
+        gate_api_key_hashes=GATE_API_KEY_HASHES,
+    )
 
     response = request(
         app,
@@ -95,7 +115,61 @@ def test_upload_rejects_an_unknown_camera_stream():
         "/v1/gate/inspections",
         data={"gate_token": "token-1", "gate_id": "GATE-01"},
         files=inspection_files() + [("cam_extra", ("extra.jpg", jpeg_bytes(), "image/jpeg"))],
+        headers=AUTH_HEADERS,
     )
 
     assert response.status_code == 422
     assert "unknown" in response.json()["detail"]
+
+
+def test_upload_requires_gate_authentication():
+    service = RecordingService()
+    app = create_app(service=service, gate_api_key_hashes=GATE_API_KEY_HASHES)
+
+    response = request(
+        app,
+        "POST",
+        "/v1/gate/inspections",
+        data={"gate_token": "token-1", "gate_id": "GATE-01"},
+        files=inspection_files(),
+    )
+
+    assert response.status_code == 401
+    assert response.json()["detail"]["code"] == "GATE_AUTH_REQUIRED"
+    assert service.request is None
+
+
+def test_upload_rejects_an_invalid_gate_api_key():
+    service = RecordingService()
+    app = create_app(service=service, gate_api_key_hashes=GATE_API_KEY_HASHES)
+
+    response = request(
+        app,
+        "POST",
+        "/v1/gate/inspections",
+        data={"gate_token": "token-1", "gate_id": "GATE-01"},
+        files=inspection_files(),
+        headers={"Authorization": "Bearer wrong-key"},
+    )
+
+    assert response.status_code == 403
+    assert response.json()["detail"]["code"] == "GATE_ACCESS_DENIED"
+    assert service.request is None
+
+
+def test_upload_rejects_a_key_bound_to_another_gate():
+    service = RecordingService()
+    app = create_app(service=service, gate_api_key_hashes=GATE_API_KEY_HASHES)
+
+    response = request(
+        app,
+        "POST",
+        "/v1/gate/inspections",
+        data={"gate_token": "token-1", "gate_id": "GATE-02"},
+        files=inspection_files(),
+        headers=AUTH_HEADERS,
+    )
+
+    assert response.status_code == 403
+    assert response.json()["detail"]["code"] == "GATE_ACCESS_DENIED"
+    assert service.request is None

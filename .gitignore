@@ -30,6 +30,7 @@ build/
 
 # Documentation (kept locally only)
 *.md
+!HARDWARE_API_INTERFACE.md
 
 # Environment files and secrets
 .env

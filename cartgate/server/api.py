@@ -2,12 +2,14 @@
 
 from __future__ import annotations
 
-from typing import Any, Callable, Dict, List, Optional, Tuple
+import hashlib
+import hmac
+from typing import Any, Callable, Dict, List, Mapping, Optional, Tuple
 
 import anyio
 import cv2
 import numpy as np
-from fastapi import FastAPI, File, Form, HTTPException, Request, UploadFile
+from fastapi import FastAPI, File, Form, Header, HTTPException, Request, UploadFile
 from fastapi.responses import JSONResponse
 from typing_extensions import Annotated
 
@@ -30,9 +32,11 @@ def create_app(
     *,
     service: Optional[Any] = None,
     readiness: Optional[Callable[[], Tuple[bool, List[str]]]] = None,
+    gate_api_key_hashes: Optional[Mapping[str, str]] = None,
 ) -> FastAPI:
     app = FastAPI(title="CartGate AI Server", version="0.1.0")
     ready = readiness or (lambda: (False, []))
+    api_key_hashes = dict(gate_api_key_hashes or {})
 
     @app.get("/healthz")
     def healthz() -> JSONResponse:
@@ -47,7 +51,9 @@ def create_app(
         gate_id: Annotated[str, Form()],
         cam_left: Annotated[Optional[List[UploadFile]], File()] = None,
         cam_right: Annotated[Optional[List[UploadFile]], File()] = None,
+        authorization: Annotated[Optional[str], Header()] = None,
     ) -> Dict[str, str]:
+        _authenticate_gate(gate_id, authorization, api_key_hashes)
         if service is None:
             raise HTTPException(status_code=503, detail="AI service is not ready")
         if not cam_left:
@@ -86,6 +92,23 @@ async def _decode_upload(upload: UploadFile, camera_id: str) -> CapturedFrame:
     return CapturedFrame(decoded)
 
 
+def _authenticate_gate(gate_id: str, authorization: Optional[str], api_key_hashes: Mapping[str, str]) -> None:
+    scheme, separator, api_key = (authorization or "").partition(" ")
+    if not separator or scheme.lower() != "bearer" or not api_key:
+        raise HTTPException(
+            status_code=401,
+            detail={"code": "GATE_AUTH_REQUIRED", "message": "gate authentication is required"},
+            headers={"WWW-Authenticate": "Bearer"},
+        )
+    expected_hash = api_key_hashes.get(gate_id)
+    supplied_hash = hashlib.sha256(api_key.encode("utf-8")).hexdigest()
+    if expected_hash is None or not hmac.compare_digest(supplied_hash, expected_hash):
+        raise HTTPException(
+            status_code=403,
+            detail={"code": "GATE_ACCESS_DENIED", "message": "gate authentication failed"},
+        )
+
+
 def create_production_app() -> FastAPI:
     settings = Settings.from_env()
     runtime = VisionRuntime(settings.model_dir, min_frames=settings.min_frames_per_camera)
@@ -96,7 +119,11 @@ def create_production_app() -> FastAPI:
     )
     catalog = ProductCatalog.from_csv(settings.model_dir / "products.csv")
     service = GateService(spring, catalog, runtime)
-    return create_app(service=service, readiness=lambda: (True, runtime.provider))
+    return create_app(
+        service=service,
+        readiness=lambda: (True, runtime.provider),
+        gate_api_key_hashes=settings.gate_api_key_hashes,
+    )
 
 
 app = create_app()
