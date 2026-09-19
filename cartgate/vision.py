@@ -16,7 +16,7 @@ Typical wiring, models loaded once per process:
 
     detector = YOLO("runs/detector/best.pt")
     embedder = get_embedder("dino_arc.onnx", pad=True)
-    gallery  = load_gallery("out/gallery.pkl")
+    gallery  = load_gallery("out/gallery.npz")
     fusion   = load_fusion("gate_calib.json")
 
     per_cam = {}
@@ -218,4 +218,3 @@ def resolve_camera(model, frames, embedder, gallery, receipt_skus, dev,
             crop_ref=None,                           # filled by save_evidence() on demand
         ))
     return dets, crops
-

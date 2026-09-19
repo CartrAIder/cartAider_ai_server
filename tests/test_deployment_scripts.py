@@ -121,6 +121,18 @@ def test_model_bundle_validator_accepts_an_npz_only_bundle(tmp_path):
     assert result.returncode == 0, result.stderr
 
 
+def test_model_bundle_validator_rejects_a_pickle_only_bundle(tmp_path):
+    """Catches deployment accepting a NumPy-version-dependent pickle gallery."""
+    write_bundle(tmp_path)
+    (tmp_path / "out/gallery.npz").unlink()
+    (tmp_path / "out/gallery.pkl").write_bytes(b"incompatible pickle")
+
+    result = run_validator(tmp_path)
+
+    assert result.returncode != 0
+    assert "out/gallery.npz" in result.stderr
+
+
 def test_model_bundle_validator_rejects_the_outer_models_directory(tmp_path):
     """Catches mounting models/ when the bundle root is models/CartGate_AI/."""
     nested_bundle = tmp_path / "CartGate_AI"

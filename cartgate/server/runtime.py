@@ -64,7 +64,7 @@ class VisionRuntime:
                 detector = YOLO(str(root / "runs/detector/best.pt"))
             self._detector = detector
             self._embedder = embedder or get_embedder(str(root / "dino_arc.onnx"), pad=True)
-            self._gallery = gallery or load_gallery(str(root / "out/gallery.pkl"))
+            self._gallery = gallery or load_gallery(str(root / "out/gallery.npz"))
             self._fusion = fusion or load_fusion(str(root / "gate_calib.json"))
         except Exception as exc:
             raise VisionInferenceError("unable to initialize CartGate models") from exc

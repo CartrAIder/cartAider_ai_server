@@ -90,7 +90,7 @@ def _load_pkl(path: Path) -> dict:
         ) from exc
 
 
-def load_gallery(path: str = "out/gallery.pkl") -> dict:
+def load_gallery(path: str = "out/gallery.npz") -> dict:
     """Load a prebuilt .npz or .pkl gallery for serving.
 
     build_gallery() needs the product photos; a deployed service does not. Ship
@@ -98,13 +98,12 @@ def load_gallery(path: str = "out/gallery.pkl") -> dict:
     embeddings are all the recognizer ever touches. Rebuild only when the
     product photos or the embedding model change.
 
-    If the requested file is absent, the sibling with the other supported suffix
-    is used. This keeps older serving code compatible with NPZ-only bundles.
+    Legacy callers requesting a missing pickle are redirected to the portable
+    sibling NPZ. NPZ requests never fall back to pickle.
     """
     gallery_path = Path(path)
-    if not gallery_path.exists():
-        alternate_suffix = ".npz" if gallery_path.suffix == ".pkl" else ".pkl"
-        alternate = gallery_path.with_suffix(alternate_suffix)
+    if not gallery_path.exists() and gallery_path.suffix == ".pkl":
+        alternate = gallery_path.with_suffix(".npz")
         if alternate.exists():
             gallery_path = alternate
 

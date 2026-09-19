@@ -20,15 +20,8 @@ for relative_path in dino_arc.onnx runs/detector/best.pt products.csv; do
     fi
 done
 
-gallery_ok=0
-for gallery_path in out/gallery.npz out/gallery.pkl; do
-    if [ -f "$bundle_root/$gallery_path" ] && [ -s "$bundle_root/$gallery_path" ]; then
-        gallery_ok=1
-    fi
-done
-
-if [ "$gallery_ok" -ne 1 ]; then
-    echo "model bundle is missing or empty: out/gallery.npz or out/gallery.pkl under: $bundle_root" >&2
+if [ ! -f "$bundle_root/out/gallery.npz" ] || [ ! -s "$bundle_root/out/gallery.npz" ]; then
+    echo "model bundle is missing or empty: out/gallery.npz under: $bundle_root" >&2
     missing=1
 fi
 

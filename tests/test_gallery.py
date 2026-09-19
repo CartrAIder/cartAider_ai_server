@@ -2,6 +2,7 @@ import json
 
 import cv2
 import numpy as np
+import pytest
 
 from cartgate import gallery as gallery_module
 
@@ -30,6 +31,14 @@ def test_load_gallery_falls_back_to_npz_when_requested_pickle_is_missing(tmp_pat
         np.array([[1.0, 0.0], [0.5, 0.5]], dtype=np.float32),
     )
     assert loaded["SKU-002"]["views"] == [{"src": "top.jpg"}]
+
+
+def test_load_gallery_does_not_fall_back_to_pickle_when_npz_is_requested(tmp_path):
+    """Catches production silently reopening an incompatible pickle gallery."""
+    (tmp_path / "gallery.pkl").write_bytes(b"not a portable gallery")
+
+    with pytest.raises(FileNotFoundError):
+        gallery_module.load_gallery(str(tmp_path / "gallery.npz"))
 
 
 def test_build_gallery_writes_a_portable_npz_copy(tmp_path):
